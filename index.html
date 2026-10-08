@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#000000">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png">
+<title>FlySight Altitude</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: #000; color: #fff;
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    display: flex; flex-direction: column;
+    padding: max(16px, env(safe-area-inset-top)) 16px max(16px, env(safe-area-inset-bottom));
+    -webkit-user-select: none; user-select: none;
+  }
+  header { display: flex; justify-content: space-between; align-items: center; font-size: 14px; color: #9aa; }
+  #dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: #555; margin-right: 8px; }
+  #dot.live { background: #2ecc71; }
+  #dot.stale { background: #f39c12; }
+  main { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; }
+  #label { font-size: 14px; letter-spacing: .15em; color: #9aa; text-transform: uppercase; }
+  #alt { font-size: min(30vw, 38vh); font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; }
+  #unit { font-size: 28px; color: #9aa; }
+  #secondary { display: flex; gap: 32px; margin-top: 28px; font-variant-numeric: tabular-nums; }
+  #secondary div { font-size: 26px; }
+  #secondary small { display: block; font-size: 12px; color: #9aa; letter-spacing: .1em; text-transform: uppercase; }
+  footer { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+  button {
+    font: inherit; font-size: 16px; font-weight: 600; color: #fff; background: #222;
+    border: 1px solid #444; border-radius: 12px; padding: 16px 8px;
+  }
+  button.primary { background: #1e6fff; border-color: #1e6fff; grid-column: 1 / -1; font-size: 20px; padding: 20px; }
+  button:disabled { opacity: .4; }
+  #msg { min-height: 20px; margin: 10px 0; font-size: 13px; color: #f39c12; text-align: center; }
+  #raw { font: 11px ui-monospace, Consolas, monospace; color: #566; text-align: center; word-break: break-all; min-height: 14px; }
+</style>
+</head>
+<body>
+<header>
+  <span><span id="dot"></span><span id="status">Not connected</span></span>
+  <span id="age"></span>
+</header>
+
+<main>
+  <div id="label">GPS altitude (MSL)</div>
+  <div id="alt">---</div>
+  <div id="unit">ft</div>
+  <div id="secondary">
+    <div><span id="vs">--</span><small>Vertical mph</small></div>
+    <div><span id="gs">--</span><small>Ground mph</small></div>
+  </div>
+</main>
+
+<div id="msg"></div>
+<div id="raw"></div>
+<footer>
+  <button id="connect" class="primary">Connect FlySight</button>
+  <button id="units">ft / m</button>
+  <button id="zero">Zero here</button>
+  <button id="clear">MSL</button>
+</footer>
+
+<script>
+// UUIDs and packet layout from flysight/flysight-2-firmware (STM32_WPAN/App/custom_stm.c, custom_app.c)
+const GNSS_SERVICE = '00000001-cc7a-482a-984a-7f2ed5b3e58f';
+const GNSS_PV_CHAR = '00000000-8e22-4541-9d4c-21edae82ed19';
+const FLYSIGHT_COMPANY_ID = 0x09DB;
+
+const $ = id => document.getElementById(id);
+let device = null, feet = true, zeroMm = null, lastMm = null, lastRx = 0, wakeLock = null, wantConnected = false;
+
+function setStatus(text, cls) { $('status').textContent = text; $('dot').className = cls || ''; }
+function setMsg(text) { $('msg').textContent = text || ''; }
+
+function render() {
+  $('unit').textContent = feet ? 'ft' : 'm';
+  $('label').textContent = zeroMm === null ? 'GPS altitude (MSL)' : 'Height above zero point';
+  if (lastMm === null) return;
+  const m = (lastMm - (zeroMm ?? 0)) / 1000;
+  $('alt').textContent = Math.round(feet ? m * 3.28084 : m).toLocaleString();
+}
+
+function onPacket(e) {
+  const dv = e.target.value;
+  $('raw').textContent = [...new Uint8Array(dv.buffer, dv.byteOffset, dv.byteLength)]
+    .map(b => b.toString(16).padStart(2, '0')).join(' ');
+
+  // Byte 0 is a field mask (0xb0 = time of week + position + velocity); everything is little-endian.
+  const mask = dv.getUint8(0);
+  let o = 1;
+  if (mask & 0x80) o += 4;                       // iTOW (ms)
+  if (!(mask & 0x20) || dv.byteLength < o + 12) { setMsg('Packet has no position data'); return; }
+  lastMm = dv.getInt32(o + 8, true);             // lon, lat, then hMSL (mm)
+  o += 12;
+  if ((mask & 0x10) && dv.byteLength >= o + 12) {
+    const velN = dv.getInt32(o, true), velE = dv.getInt32(o + 4, true), velD = dv.getInt32(o + 8, true); // mm/s
+    const MPH = 0.00223694;
+    $('vs').textContent = Math.round(velD * MPH);  // positive = descending
+    $('gs').textContent = Math.round(Math.hypot(velN, velE) * MPH);
+  }
+  lastRx = Date.now();
+  setMsg('');
+  render();
+}
+
+async function subscribe() {
+  setStatus('Connecting…');
+  const server = await device.gatt.connect();
+  const service = await server.getPrimaryService(GNSS_SERVICE);
+  const ch = await service.getCharacteristic(GNSS_PV_CHAR);
+  ch.addEventListener('characteristicvaluechanged', onPacket);
+  await ch.startNotifications();
+  setStatus('Connected — waiting for GPS', 'stale');
+  $('connect').textContent = 'Disconnect';
+  try { wakeLock = await navigator.wakeLock?.request('screen'); } catch {}
+}
+
+async function reconnect() {
+  for (let i = 0; wantConnected && i < 20; i++) {
+    try { await subscribe(); return; }
+    catch { await new Promise(r => setTimeout(r, 1500)); }
+  }
+  if (wantConnected) { setStatus('Disconnected'); $('connect').textContent = 'Connect FlySight'; wantConnected = false; }
+}
+
+$('connect').onclick = async () => {
+  if (wantConnected) {
+    wantConnected = false;
+    device?.gatt.disconnect();
+    $('connect').textContent = 'Connect FlySight';
+    setStatus('Not connected');
+    return;
+  }
+  if (!navigator.bluetooth) {
+    setMsg('This browser has no Web Bluetooth. Use Chrome on Android, or the Bluefy browser on iPhone.');
+    return;
+  }
+  try {
+    setMsg('');
+    device = await navigator.bluetooth.requestDevice({
+      filters: [{ namePrefix: 'FlySight' }, { manufacturerData: [{ companyIdentifier: FLYSIGHT_COMPANY_ID }] }],
+      optionalServices: [GNSS_SERVICE],
+    });
+    device.addEventListener('gattserverdisconnected', () => {
+      if (!wantConnected) return;
+      setStatus('Reconnecting…', 'stale');
+      reconnect();
+    });
+    wantConnected = true;
+    await subscribe();
+  } catch (err) {
+    wantConnected = false;
+    setStatus('Not connected');
+    if (err.name !== 'NotFoundError') setMsg(err.message + ' — if this is the first connection, put the FlySight in pairing mode and accept the pairing prompt.');
+  }
+};
+
+$('units').onclick = () => { feet = !feet; render(); };
+$('zero').onclick = () => { if (lastMm !== null) { zeroMm = lastMm; render(); } };
+$('clear').onclick = () => { zeroMm = null; render(); };
+
+setInterval(() => {
+  if (!lastRx) return;
+  const age = (Date.now() - lastRx) / 1000;
+  $('age').textContent = age < 2 ? 'live' : `${Math.round(age)}s ago`;
+  if (wantConnected && device?.gatt.connected) setStatus(age < 2 ? 'Live' : 'No data — is the FlySight on with a fix?', age < 2 ? 'live' : 'stale');
+}, 500);
+
+// Cache the app so it opens with no data connection
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('sw.js')
+    .then(() => navigator.serviceWorker.ready)
+    .then(() => { if (!lastRx) $('age').textContent = 'saved for offline'; })
+    .catch(() => {});
+}
+
+document.addEventListener('visibilitychange', async () => {
+  if (document.visibilityState === 'visible' && wantConnected) {
+    try { wakeLock = await navigator.wakeLock?.request('screen'); } catch {}
+  }
+});
+</script>
+</body>
+</html>
