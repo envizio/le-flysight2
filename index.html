@@ -56,6 +56,21 @@
   button.primary:active { background: #FF8A4D; color: var(--ink-1000); }
   #msg { min-height: 18px; margin: 10px 0 6px; font-size: 13px; line-height: 1.4; color: var(--warning); text-align: center; }
   #raw { font-size: 9px; letter-spacing: .04em; color: #4A5781; text-align: center; word-break: break-all; min-height: 12px; margin-bottom: 8px; text-transform: none; }
+  button:disabled { opacity: .35; }
+  button.primary.off { background: transparent; color: #fff; border-color: var(--border-strong); }
+  #dzBtn { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  dialog { width: min(92vw, 420px); background: var(--ink-900); color: #fff; border: 1px solid var(--border-strong); border-radius: 0; padding: 20px; }
+  dialog::backdrop { background: rgba(4, 6, 13, .8); }
+  dialog h2 { font-family: var(--font-display); font-weight: 400; font-size: 32px; line-height: 1; text-transform: uppercase; margin: 8px 0 18px; }
+  dialog label { display: block; margin: 14px 0 6px; }
+  dialog input, dialog select {
+    width: 100%; font-family: var(--font-body); font-size: 18px; color: #fff; background: var(--ink-1000);
+    border: 1px solid var(--border-strong); border-radius: 0; padding: 12px; -webkit-user-select: text; user-select: text;
+  }
+  dialog .row { display: grid; grid-template-columns: 1fr 96px; gap: 8px; }
+  dialog .actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 18px; }
+  dialog .wide { grid-column: 1 / -1; }
+  dialog button.save { background: var(--signal-500); border-color: var(--signal-500); color: var(--ink-1000); }
 </style>
 </head>
 <body>
@@ -76,31 +91,70 @@
 </main>
 
 <div id="msg"></div>
-<div id="raw" class="mono">LE LIVE v3</div>
+<div id="raw" class="mono">LE LIVE v4</div>
 <footer>
   <button id="connect" class="primary">Connect FlySight →</button>
   <button id="units">ft / m</button>
-  <button id="zero">Zero here</button>
-  <button id="clear">MSL</button>
+  <button id="dzBtn">Dropzone</button>
+  <button id="mode" disabled>MSL</button>
 </footer>
+
+<dialog id="dzDialog">
+  <div class="mono">[ Dropzone // elevation ]</div>
+  <h2>Dropzone</h2>
+  <label class="mono" for="dzSel">Saved dropzones</label>
+  <select id="dzSel"></select>
+  <label class="mono" for="dzName">Name</label>
+  <input id="dzName" maxlength="30" autocomplete="off" placeholder="e.g. Home DZ">
+  <label class="mono" for="dzElev">Elevation above sea level</label>
+  <div class="row">
+    <input id="dzElev" type="number" inputmode="decimal" step="any" placeholder="0">
+    <select id="dzUnit"><option value="ft">ft</option><option value="m">m</option></select>
+  </div>
+  <div class="actions">
+    <button id="dzGps" class="wide">Use current GPS altitude</button>
+    <button id="dzSave" class="save">Save + use</button>
+    <button id="dzDelete">Delete</button>
+    <button id="dzClose" class="wide">Close</button>
+  </div>
+</dialog>
 
 <script>
 // UUIDs and packet layout from flysight/flysight-2-firmware (STM32_WPAN/App/custom_stm.c, custom_app.c)
 const GNSS_SERVICE = '00000001-cc7a-482a-984a-7f2ed5b3e58f';
 const GNSS_PV_CHAR = '00000000-8e22-4541-9d4c-21edae82ed19';
+const FT_PER_M = 3.28084;
+const STORE_KEY = 'le-live';
 
 const $ = id => document.getElementById(id);
-let device = null, feet = true, zeroMm = null, lastMm = null, lastRx = 0, wakeLock = null, wantConnected = false;
+let device = null, lastMm = null, lastRx = 0, wakeLock = null, wantConnected = false, connecting = false;
+
+// Remembered between visits: display units, saved dropzones, and the last FlySight
+// state.dzs = [{ name, elev, unit }] with elev in the unit it was entered in
+let state = { feet: true, agl: true, dzs: [], activeDz: -1, device: null, auto: false };
+try { Object.assign(state, JSON.parse(localStorage.getItem(STORE_KEY)) || {}); } catch {}
+function save() { try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch {} }
 
 function setStatus(text, cls) { $('status').textContent = text; $('dot').className = cls || ''; }
 function setMsg(text) { $('msg').textContent = text || ''; }
+function setConnectButton() {
+  $('connect').textContent = wantConnected ? 'Disconnect' : 'Connect FlySight →';
+  $('connect').classList.toggle('off', wantConnected);
+}
+
+const activeDz = () => state.dzs[state.activeDz] || null;
+const dzElevM = dz => dz.unit === 'ft' ? dz.elev / FT_PER_M : dz.elev;
 
 function render() {
-  $('unit').textContent = feet ? 'ft' : 'm';
-  $('label').textContent = zeroMm === null ? '[ GPS altitude // MSL ]' : '[ Height // above zero ]';
+  const dz = activeDz(), agl = dz && state.agl;
+  $('unit').textContent = state.feet ? 'ft' : 'm';
+  $('label').textContent = agl ? `[ Height // above ${dz.name} ]` : '[ GPS altitude // MSL ]';
+  $('dzBtn').textContent = dz ? dz.name : 'Dropzone';
+  $('mode').textContent = agl ? 'AGL' : 'MSL';
+  $('mode').disabled = !dz;
   if (lastMm === null) return;
-  const m = (lastMm - (zeroMm ?? 0)) / 1000;
-  $('alt').textContent = Math.round(feet ? m * 3.28084 : m).toLocaleString();
+  const m = lastMm / 1000 - (agl ? dzElevM(dz) : 0);
+  $('alt').textContent = Math.round(state.feet ? m * FT_PER_M : m).toLocaleString();
 }
 
 function onPacket(e) {
@@ -126,31 +180,59 @@ function onPacket(e) {
   render();
 }
 
+/* ── Bluetooth ─────────────────────────────────────────────────────────── */
+
+function adopt(d) {
+  device = d;
+  device.addEventListener('gattserverdisconnected', () => {
+    if (!wantConnected) return;
+    setStatus('Reconnecting…', 'stale');
+    reconnect();
+  });
+}
+
 async function subscribe() {
-  setStatus('Connecting…');
   const server = await device.gatt.connect();
   const service = await server.getPrimaryService(GNSS_SERVICE);
   const ch = await service.getCharacteristic(GNSS_PV_CHAR);
   ch.addEventListener('characteristicvaluechanged', onPacket);
   await ch.startNotifications();
   setStatus('Connected — waiting for GPS', 'stale');
-  $('connect').textContent = 'Disconnect';
   try { wakeLock = await navigator.wakeLock?.request('screen'); } catch {}
 }
 
+// Keep trying until the FlySight is back in range or the user disconnects
 async function reconnect() {
-  for (let i = 0; wantConnected && i < 20; i++) {
-    try { await subscribe(); return; }
+  if (connecting) return;
+  connecting = true;
+  while (wantConnected) {
+    try { await subscribe(); break; }
     catch { await new Promise(r => setTimeout(r, 1500)); }
   }
-  if (wantConnected) { setStatus('Disconnected'); $('connect').textContent = 'Connect FlySight →'; wantConnected = false; }
+  connecting = false;
+}
+
+// After a reload, pick the remembered FlySight back up without showing the device picker.
+// Chrome only hands back remembered devices when its persistent Bluetooth permissions are on.
+async function resume() {
+  if (!state.auto || !state.device || !navigator.bluetooth) return;
+  let known = [];
+  try { known = await navigator.bluetooth.getDevices(); } catch {}
+  const d = known.find(x => x.id === state.device.id);
+  if (!d) { setStatus(`Tap connect to rejoin ${state.device.name}`); return; }
+  adopt(d);
+  wantConnected = true;
+  setConnectButton();
+  setStatus(`Reconnecting to ${state.device.name}…`, 'stale');
+  reconnect();
 }
 
 $('connect').onclick = async () => {
   if (wantConnected) {
     wantConnected = false;
+    state.auto = false; save();
     device?.gatt.disconnect();
-    $('connect').textContent = 'Connect FlySight →';
+    setConnectButton();
     setStatus('Not connected');
     return;
   }
@@ -161,14 +243,13 @@ $('connect').onclick = async () => {
   try {
     setMsg('');
     // List every nearby BLE device: the FlySight's advertised name is user-configurable, so don't filter on it
-    device = await navigator.bluetooth.requestDevice({ acceptAllDevices: true, optionalServices: [GNSS_SERVICE] });
-    device.addEventListener('gattserverdisconnected', () => {
-      if (!wantConnected) return;
-      setStatus('Reconnecting…', 'stale');
-      reconnect();
-    });
-    wantConnected = true;
+    adopt(await navigator.bluetooth.requestDevice({ acceptAllDevices: true, optionalServices: [GNSS_SERVICE] }));
+    setStatus('Connecting…');
     await subscribe();
+    wantConnected = true;
+    state.device = { id: device.id, name: device.name || 'FlySight' };
+    state.auto = true; save();
+    setConnectButton();
   } catch (err) {
     wantConnected = false;
     setStatus('Not connected');
@@ -176,9 +257,60 @@ $('connect').onclick = async () => {
   }
 };
 
-$('units').onclick = () => { feet = !feet; render(); };
-$('zero').onclick = () => { if (lastMm !== null) { zeroMm = lastMm; render(); } };
-$('clear').onclick = () => { zeroMm = null; render(); };
+/* ── Units and dropzones ───────────────────────────────────────────────── */
+
+$('units').onclick = () => { state.feet = !state.feet; save(); render(); };
+$('mode').onclick = () => { state.agl = !state.agl; save(); render(); };
+
+const NONE = '-1', NEW = 'new';
+function fillDzForm() {
+  const sel = $('dzSel');
+  sel.replaceChildren(
+    new Option('None — show MSL', NONE),
+    ...state.dzs.map((dz, i) => new Option(`${dz.name} — ${dz.elev} ${dz.unit}`, i)),
+    new Option('+ New dropzone', NEW));
+  sel.value = activeDz() ? state.activeDz : (state.dzs.length ? NONE : NEW);
+  loadDzFields();
+}
+function loadDzFields() {
+  const dz = state.dzs[$('dzSel').value];
+  $('dzName').value = dz ? dz.name : '';
+  $('dzElev').value = dz ? dz.elev : '';
+  $('dzUnit').value = dz ? dz.unit : (state.feet ? 'ft' : 'm');
+  $('dzDelete').disabled = !dz;
+}
+
+$('dzBtn').onclick = () => { fillDzForm(); $('dzDialog').showModal(); };
+$('dzClose').onclick = () => $('dzDialog').close();
+$('dzSel').onchange = () => {
+  const v = $('dzSel').value;
+  if (v !== NEW) { state.activeDz = Number(v); state.agl = true; save(); render(); }
+  loadDzFields();
+};
+$('dzGps').onclick = () => {
+  if (lastMm === null) { $('dzElev').placeholder = 'No GPS reading yet'; return; }
+  const m = lastMm / 1000;
+  $('dzElev').value = Math.round($('dzUnit').value === 'ft' ? m * FT_PER_M : m);
+};
+$('dzSave').onclick = () => {
+  const name = $('dzName').value.trim(), elev = parseFloat($('dzElev').value);
+  if (!name) { $('dzName').focus(); return; }
+  if (!Number.isFinite(elev)) { $('dzElev').focus(); return; }
+  const dz = { name, elev, unit: $('dzUnit').value };
+  const i = Number($('dzSel').value);
+  if (state.dzs[i]) { state.dzs[i] = dz; state.activeDz = i; }
+  else { state.dzs.push(dz); state.activeDz = state.dzs.length - 1; }
+  state.agl = true;
+  save(); render();
+  $('dzDialog').close();
+};
+$('dzDelete').onclick = () => {
+  const i = Number($('dzSel').value);
+  if (!state.dzs[i]) return;
+  state.dzs.splice(i, 1);
+  state.activeDz = -1;
+  save(); render(); fillDzForm();
+};
 
 setInterval(() => {
   if (!lastRx) return;
@@ -200,6 +332,9 @@ document.addEventListener('visibilitychange', async () => {
     try { wakeLock = await navigator.wakeLock?.request('screen'); } catch {}
   }
 });
+
+render();
+resume();
 </script>
 </body>
 </html>
