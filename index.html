@@ -91,7 +91,7 @@
 </main>
 
 <div id="msg"></div>
-<div id="raw" class="mono">LE LIVE v4</div>
+<div id="raw" class="mono">LE LIVE v5</div>
 <footer>
   <button id="connect" class="primary">Connect FlySight →</button>
   <button id="units">ft / m</button>
@@ -242,8 +242,11 @@ $('connect').onclick = async () => {
   }
   try {
     setMsg('');
-    // List every nearby BLE device: the FlySight's advertised name is user-configurable, so don't filter on it
-    adopt(await navigator.bluetooth.requestDevice({ acceptAllDevices: true, optionalServices: [GNSS_SERVICE] }));
+    // Only list FlySights: by advertised name, or by FlySight's manufacturer ID in case the unit has been renamed
+    adopt(await navigator.bluetooth.requestDevice({
+      filters: [{ namePrefix: 'FlySight' }, { manufacturerData: [{ companyIdentifier: 0x09DB }] }],
+      optionalServices: [GNSS_SERVICE],
+    }));
     setStatus('Connecting…');
     await subscribe();
     wantConnected = true;
