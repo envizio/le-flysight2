@@ -1,5 +1,5 @@
-// Serve from cache first so the app opens with no signal; refresh the cache in the background when online.
-const CACHE = 'flysight-altitude-v1';
+// Try the network briefly so updates arrive when online; fall back to the cache so the app opens with no signal.
+const CACHE = 'flysight-altitude-v2';
 const FILES = ['./', 'index.html', 'manifest.json', 'icon-192.png', 'icon-512.png'];
 
 self.addEventListener('install', e => {
@@ -22,8 +22,10 @@ self.addEventListener('fetch', e => {
       const fresh = fetch(e.request).then(res => {
         if (res.ok) cache.put(e.request, res.clone());
         return res;
-      }).catch(() => cached);
-      return cached || fresh;
+      });
+      if (!cached) return fresh;
+      const timeout = new Promise(r => setTimeout(() => r(cached), 2500));
+      return Promise.race([fresh.catch(() => cached), timeout]);
     })
   );
 });

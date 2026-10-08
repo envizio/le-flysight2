@@ -56,7 +56,7 @@
 </main>
 
 <div id="msg"></div>
-<div id="raw"></div>
+<div id="raw">v2</div>
 <footer>
   <button id="connect" class="primary">Connect FlySight</button>
   <button id="units">ft / m</button>
@@ -68,7 +68,6 @@
 // UUIDs and packet layout from flysight/flysight-2-firmware (STM32_WPAN/App/custom_stm.c, custom_app.c)
 const GNSS_SERVICE = '00000001-cc7a-482a-984a-7f2ed5b3e58f';
 const GNSS_PV_CHAR = '00000000-8e22-4541-9d4c-21edae82ed19';
-const FLYSIGHT_COMPANY_ID = 0x09DB;
 
 const $ = id => document.getElementById(id);
 let device = null, feet = true, zeroMm = null, lastMm = null, lastRx = 0, wakeLock = null, wantConnected = false;
@@ -141,10 +140,8 @@ $('connect').onclick = async () => {
   }
   try {
     setMsg('');
-    device = await navigator.bluetooth.requestDevice({
-      filters: [{ namePrefix: 'FlySight' }, { manufacturerData: [{ companyIdentifier: FLYSIGHT_COMPANY_ID }] }],
-      optionalServices: [GNSS_SERVICE],
-    });
+    // List every nearby BLE device: the FlySight's advertised name is user-configurable, so don't filter on it
+    device = await navigator.bluetooth.requestDevice({ acceptAllDevices: true, optionalServices: [GNSS_SERVICE] });
     device.addEventListener('gattserverdisconnected', () => {
       if (!wantConnected) return;
       setStatus('Reconnecting…', 'stale');
