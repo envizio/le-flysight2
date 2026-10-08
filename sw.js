@@ -1,6 +1,7 @@
 // Try the network briefly so updates arrive when online; fall back to the cache so the app opens with no signal.
-const CACHE = 'flysight-altitude-v2';
-const FILES = ['./', 'index.html', 'manifest.json', 'icon-192.png', 'icon-512.png'];
+const CACHE = 'le-live-v3';
+const FILES = ['./', 'index.html', 'manifest.json', 'icon-192.png', 'icon-512.png',
+  'logo-light.webp', 'fonts/anton.woff2', 'fonts/archivo.woff2', 'fonts/mono.woff2'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(FILES)).then(() => self.skipWaiting()));

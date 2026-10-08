@@ -3,62 +3,82 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#000000">
+<meta name="theme-color" content="#04060D">
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icon-192.png">
-<title>FlySight Altitude</title>
+<title>Leading Edge Live</title>
 <style>
+  /* Leading Edge tokens (colors_and_type.css); fonts are self-hosted so the app works offline */
+  @font-face { font-family: "Anton"; src: url("fonts/anton.woff2") format("woff2"); font-display: swap; }
+  @font-face { font-family: "Archivo"; src: url("fonts/archivo.woff2") format("woff2"); font-weight: 400 800; font-display: swap; }
+  @font-face { font-family: "JetBrains Mono"; src: url("fonts/mono.woff2") format("woff2"); font-weight: 400 700; font-display: swap; }
+  :root {
+    --ink-1000: #04060D; --ink-900: #07091A; --ink-300: #7E8AAE; --ink-200: #B8BFD4;
+    --signal-500: #FF6B1A; --success: #4ECB81; --warning: #E9B341;
+    --border: rgba(255, 255, 255, 0.10); --border-strong: rgba(255, 255, 255, 0.22);
+    --font-display: "Anton", "Arial Narrow", sans-serif;
+    --font-body: "Archivo", "Helvetica Neue", Arial, sans-serif;
+    --font-mono: "JetBrains Mono", ui-monospace, Menlo, monospace;
+  }
   * { box-sizing: border-box; }
   html, body { height: 100%; margin: 0; }
   body {
-    background: #000; color: #fff;
-    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    background: var(--ink-1000); color: #fff; font-family: var(--font-body);
     display: flex; flex-direction: column;
     padding: max(16px, env(safe-area-inset-top)) 16px max(16px, env(safe-area-inset-bottom));
     -webkit-user-select: none; user-select: none;
   }
-  header { display: flex; justify-content: space-between; align-items: center; font-size: 14px; color: #9aa; }
-  #dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: #555; margin-right: 8px; }
-  #dot.live { background: #2ecc71; }
-  #dot.stale { background: #f39c12; }
-  main { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; }
-  #label { font-size: 14px; letter-spacing: .15em; color: #9aa; text-transform: uppercase; }
-  #alt { font-size: min(30vw, 38vh); font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; }
-  #unit { font-size: 28px; color: #9aa; }
-  #secondary { display: flex; gap: 32px; margin-top: 28px; font-variant-numeric: tabular-nums; }
-  #secondary div { font-size: 26px; }
-  #secondary small { display: block; font-size: 12px; color: #9aa; letter-spacing: .1em; text-transform: uppercase; }
-  footer { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+  .mono { font-family: var(--font-mono); font-size: 11px; font-weight: 500; letter-spacing: .22em; text-transform: uppercase; color: var(--ink-300); }
+  header { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding-bottom: 14px; border-bottom: 1px solid var(--border); }
+  header img { height: 26px; width: auto; display: block; }
+  #age { color: var(--signal-500); white-space: nowrap; }
+  #statusbar { display: flex; align-items: center; padding: 12px 0; letter-spacing: .14em; }
+  #dot { flex: none; width: 8px; height: 8px; background: var(--ink-300); margin-right: 10px; }
+  #dot.live { background: var(--success); }
+  #dot.stale { background: var(--warning); }
+  main { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; min-height: 0; }
+  #alt { font-family: var(--font-display); font-size: min(34vw, 36vh); line-height: .96; letter-spacing: -.015em; margin-top: 10px; }
+  #unit { font-family: var(--font-display); font-size: 32px; line-height: 1; color: var(--signal-500); text-transform: uppercase; }
+  #secondary { display: grid; grid-template-columns: 1fr 1fr; width: 100%; margin-top: 28px; border: 1px solid var(--border); }
+  #secondary > div { padding: 12px 8px; }
+  #secondary > div + div { border-left: 1px solid var(--border); }
+  #secondary b { display: block; font-family: var(--font-display); font-weight: 400; font-size: 40px; line-height: 1.1; }
+  footer { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
   button {
-    font: inherit; font-size: 16px; font-weight: 600; color: #fff; background: #222;
-    border: 1px solid #444; border-radius: 12px; padding: 16px 8px;
+    font-family: var(--font-mono); font-size: 12px; font-weight: 500; letter-spacing: .14em; text-transform: uppercase;
+    color: #fff; background: var(--ink-900); border: 1px solid var(--border-strong); border-radius: 0; padding: 16px 4px;
   }
-  button.primary { background: #1e6fff; border-color: #1e6fff; grid-column: 1 / -1; font-size: 20px; padding: 20px; }
-  button:disabled { opacity: .4; }
-  #msg { min-height: 20px; margin: 10px 0; font-size: 13px; color: #f39c12; text-align: center; }
-  #raw { font: 11px ui-monospace, Consolas, monospace; color: #566; text-align: center; word-break: break-all; min-height: 14px; }
+  button:active { border-color: var(--signal-500); color: var(--signal-500); }
+  button.primary {
+    grid-column: 1 / -1; padding: 18px; background: var(--signal-500); border-color: var(--signal-500); color: var(--ink-1000);
+    font-family: var(--font-display); font-size: 24px; letter-spacing: .04em;
+  }
+  button.primary:active { background: #FF8A4D; color: var(--ink-1000); }
+  #msg { min-height: 18px; margin: 10px 0 6px; font-size: 13px; line-height: 1.4; color: var(--warning); text-align: center; }
+  #raw { font-size: 9px; letter-spacing: .04em; color: #4A5781; text-align: center; word-break: break-all; min-height: 12px; margin-bottom: 8px; text-transform: none; }
 </style>
 </head>
 <body>
 <header>
-  <span><span id="dot"></span><span id="status">Not connected</span></span>
-  <span id="age"></span>
+  <img src="logo-light.webp" alt="Leading Edge">
+  <span id="age" class="mono"></span>
 </header>
+<div id="statusbar" class="mono"><span id="dot"></span><span id="status">Not connected</span></div>
 
 <main>
-  <div id="label">GPS altitude (MSL)</div>
+  <div id="label" class="mono">[ GPS altitude // MSL ]</div>
   <div id="alt">---</div>
   <div id="unit">ft</div>
   <div id="secondary">
-    <div><span id="vs">--</span><small>Vertical mph</small></div>
-    <div><span id="gs">--</span><small>Ground mph</small></div>
+    <div><b id="vs">--</b><span class="mono">Vertical mph</span></div>
+    <div><b id="gs">--</b><span class="mono">Ground mph</span></div>
   </div>
 </main>
 
 <div id="msg"></div>
-<div id="raw">v2</div>
+<div id="raw" class="mono">LE LIVE v3</div>
 <footer>
-  <button id="connect" class="primary">Connect FlySight</button>
+  <button id="connect" class="primary">Connect FlySight →</button>
   <button id="units">ft / m</button>
   <button id="zero">Zero here</button>
   <button id="clear">MSL</button>
@@ -77,7 +97,7 @@ function setMsg(text) { $('msg').textContent = text || ''; }
 
 function render() {
   $('unit').textContent = feet ? 'ft' : 'm';
-  $('label').textContent = zeroMm === null ? 'GPS altitude (MSL)' : 'Height above zero point';
+  $('label').textContent = zeroMm === null ? '[ GPS altitude // MSL ]' : '[ Height // above zero ]';
   if (lastMm === null) return;
   const m = (lastMm - (zeroMm ?? 0)) / 1000;
   $('alt').textContent = Math.round(feet ? m * 3.28084 : m).toLocaleString();
@@ -123,14 +143,14 @@ async function reconnect() {
     try { await subscribe(); return; }
     catch { await new Promise(r => setTimeout(r, 1500)); }
   }
-  if (wantConnected) { setStatus('Disconnected'); $('connect').textContent = 'Connect FlySight'; wantConnected = false; }
+  if (wantConnected) { setStatus('Disconnected'); $('connect').textContent = 'Connect FlySight →'; wantConnected = false; }
 }
 
 $('connect').onclick = async () => {
   if (wantConnected) {
     wantConnected = false;
     device?.gatt.disconnect();
-    $('connect').textContent = 'Connect FlySight';
+    $('connect').textContent = 'Connect FlySight →';
     setStatus('Not connected');
     return;
   }
@@ -171,7 +191,7 @@ setInterval(() => {
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('sw.js')
     .then(() => navigator.serviceWorker.ready)
-    .then(() => { if (!lastRx) $('age').textContent = 'saved for offline'; })
+    .then(() => { if (!lastRx) $('age').textContent = '[ offline ready ]'; })
     .catch(() => {});
 }
 

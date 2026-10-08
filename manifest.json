@@ -1,12 +1,13 @@
 {
-  "name": "FlySight Altitude",
-  "short_name": "FS Altitude",
+  "name": "Leading Edge Live",
+  "short_name": "LE Live",
+  "description": "Live GPS altitude from a FlySight 2 over Bluetooth.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
   "orientation": "any",
-  "background_color": "#000000",
-  "theme_color": "#000000",
+  "background_color": "#04060D",
+  "theme_color": "#04060D",
   "icons": [
     { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
     { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
