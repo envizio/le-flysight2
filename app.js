@@ -124,7 +124,7 @@ $('connect').onclick = async () => {
     // Only list FlySights: by advertised name, or by FlySight's manufacturer ID in case the unit has been renamed
     adopt(await navigator.bluetooth.requestDevice({
       filters: [{ namePrefix: 'FlySight' }, { manufacturerData: [{ companyIdentifier: 0x09DB }] }],
-      optionalServices: [GNSS_SERVICE, CRS_SERVICE],
+      optionalServices: [GNSS_SERVICE, CRS_SERVICE, DS_SERVICE],
     }));
     setStatus('Connecting…');
     await subscribe();

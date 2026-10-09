@@ -257,7 +257,21 @@ async function fsShow(path) {
   } catch (err) { $('fsStatus').textContent = err.message; }
 }
 
-$('importFlysight').onclick = () => { $('fsDialog').showModal(); fsShow('/'); };
+$('importFlysight').onclick = async () => {
+  $('fsDialog').showModal();
+  $('fsPath').textContent = '[ FlySight ]';
+  $('fsList').innerHTML = '';
+  $('fsStatus').textContent = 'Checking the FlySight…';
+  try {
+    await crsOpen();
+    // Logging locks the card, so offer to stop it rather than fail
+    if (await fsMode() === 'active' && confirm('The FlySight is on and logging, which locks its card. Stop logging and put it to sleep so its tracks can be read?')) {
+      $('fsStatus').textContent = 'Putting the FlySight to sleep…';
+      await fsRequestSleep().catch(() => {});
+    }
+  } catch (err) { $('fsStatus').textContent = err.message; return; }
+  fsShow('/');
+};
 $('fsClose').onclick = () => $('fsDialog').close();
 $('fsList').onclick = async e => {
   const button = e.target.closest('button');
