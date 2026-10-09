@@ -220,8 +220,11 @@ addEventListener('hashchange', route);
 
 // Cache the app so it opens with no data connection
 if ('serviceWorker' in navigator) {
+  // When a new version takes over, reload once so the screen is never a version behind
+  const hadController = !!navigator.serviceWorker.controller;
+  navigator.serviceWorker.addEventListener('controllerchange', () => { if (hadController && !wantConnected) location.reload(); });
   navigator.serviceWorker.register('sw.js')
-    .then(() => navigator.serviceWorker.ready)
+    .then(reg => { reg.update().catch(() => {}); return navigator.serviceWorker.ready; })
     .then(() => { if (!lastRx) $('age').textContent = '[ offline ready ]'; })
     .catch(() => {});
 }
