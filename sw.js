@@ -1,6 +1,6 @@
 // Try the network briefly so updates arrive when online; fall back to the cache so the app opens with no signal.
-const CACHE = 'le-live-v5';
-const FILES = ['./', 'index.html', 'manifest.json', 'icon-192.png', 'icon-512.png',
+const CACHE = 'le-live-v6';
+const FILES = ['./', 'index.html', 'analysis.js', 'fsfiles.js', 'app.js', 'jumps.js', 'manifest.json', 'icon-192.png', 'icon-512.png',
   'logo-light.webp', 'fonts/anton.woff2', 'fonts/archivo.woff2', 'fonts/mono.woff2'];
 
 self.addEventListener('install', e => {
