@@ -6,8 +6,8 @@ const FT_PER_M = 3.28084;
 // FAI ISC Wingsuit Flying Competition Rules 2026, section 2.3 and 6.3 (acrobatic event).
 // Altitudes in the rules are "Geometric Altitude": GNSS height above ground level.
 const ACRO = {
-  minExitM: 3658,        // 6.3.1  minimum exit altitude, 12,000 ft
-  maxExitM: 3810,        // 6.3.1  maximum exit altitude, 12,500 ft
+  minExitM: 12000 / FT_PER_M,   // 6.3.1  minimum exit altitude, 3658 m / 12,000 ft
+  maxExitM: 12500 / FT_PER_M,   // 6.3.1  maximum exit altitude, 3810 m / 12,500 ft
   topVd: 10,             // 2.3    window upper boundary: vertical speed reaches 10 m/s after exit
   windowFt: 7500,        // 6.3.3  lower boundary below the upper boundary
   loweredWindowFt: 5000, // 6.3.5  when the exit altitude is lowered to 11,500 ft or less
