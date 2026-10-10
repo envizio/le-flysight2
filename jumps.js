@@ -288,12 +288,17 @@ async function fsShow(path) {
   try {
     const entries = (await fsListDir(path))
       .filter(e => e.dir ? !/^(\.|SYSTEM~)/.test(e.name) : /^(TRACK|SENSOR)\.CSV$/i.test(e.name))
-      .sort((x, y) => y.name.localeCompare(x.name));
+      // Newest first. Date folders sort by name; /TEMP recordings are numbered, so use their timestamps.
+      .sort((x, y) => /^TEMP$/i.test(path.slice(1)) ? (y.stamp?.order || 0) - (x.stamp?.order || 0) || y.name.localeCompare(x.name) : y.name.localeCompare(x.name));
     fsSensorSize = entries.find(e => /^SENSOR\.CSV$/i.test(e.name))?.size || 0;
     entries.splice(0, entries.length, ...entries.filter(e => !/^SENSOR\.CSV$/i.test(e.name)));
     $('fsList').innerHTML = (path === '/' ? '' : '<button data-up="1">← Up</button>') + entries.map(e =>
-      `<button data-name="${esc(e.name)}" ${e.dir ? 'data-dir="1"' : `data-size="${e.size}"`}>${esc(e.name)}${e.dir ? ' →' : ` // ${Math.round(e.size / 1024)} KB // import`}</button>`).join('');
-    $('fsStatus').textContent = entries.length ? '' : 'No tracks in this folder.';
+      `<button data-name="${esc(e.name)}" ${e.dir ? 'data-dir="1"' : `data-size="${e.size}"`}>${esc(e.name)}${
+        e.dir ? (/^TEMP$/i.test(e.name) && path === '/' ? ' // unfinished recordings →' : `${e.stamp ? ' // ' + e.stamp.text : ''} →`)
+              : ` // ${Math.round(e.size / 1024)} KB // import`}</button>`).join('');
+    const folders = entries.filter(e => e.dir).length;
+    $('fsStatus').textContent = !entries.length ? 'No tracks in this folder.'
+      : path === '/' ? `${folders} folders, newest date first. A recording that was not closed cleanly stays in TEMP.` : '';
   } catch (err) { $('fsStatus').textContent = err.message; }
 }
 

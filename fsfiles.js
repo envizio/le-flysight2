@@ -99,6 +99,15 @@ async function fsRefusal(what) {
 }
 const joinPath = (dir, name) => (dir === '/' ? '' : dir) + '/' + name;
 
+// FAT date and time words as { order, text }, or null when the FlySight's clock was not set
+function fatStamp(date, time) {
+  const month = (date >> 5) & 15, day = date & 31;
+  if (!month || !day) return null;
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const hh = String(time >> 11).padStart(2, '0'), mm = String((time >> 5) & 63).padStart(2, '0');
+  return { order: date * 65536 + time, text: `${day} ${months[month - 1] || '?'} ${hh}:${mm}` };
+}
+
 // Directory listing: one FILE_INFO per entry, ending with an entry whose name is empty
 async function fsListDir(path) {
   const channel = await crsOpen();
@@ -110,7 +119,8 @@ async function fsListDir(path) {
     let name = '';
     for (let i = 11; i < p.length && p[i]; i++) name += String.fromCharCode(p[i]);
     if (!name) return entries;
-    entries.push({ name, size: new DataView(p.buffer).getUint32(2, true), dir: !!(p[10] & ATTR_DIRECTORY) });
+    const dv = new DataView(p.buffer);
+    entries.push({ name, size: dv.getUint32(2, true), dir: !!(p[10] & ATTR_DIRECTORY), stamp: fatStamp(dv.getUint16(6, true), dv.getUint16(8, true)) });
   }).catch(async e => { throw e.refused ? new Error(await fsRefusal(`list ${path}`)) : e; });
 }
 
