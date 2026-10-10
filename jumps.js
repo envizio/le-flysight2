@@ -37,6 +37,14 @@ async function addJump(text, name) {
   return jump;
 }
 
+// Attach barometric height from a SENSOR.CSV (whole file as one string, or sampled frames) to a saved jump
+async function addBaro(jump, pieces) {
+  const baro = baroForJump(parseSensor(pieces), jump.track);
+  if (!baro) throw new Error('That sensor file has no barometer data covering this jump.');
+  jump.baro = baro;
+  await jumpPut(jump);
+}
+
 /* ── Formatting ────────────────────────────────────────────────────────── */
 
 const altUnit = () => state.feet ? 'ft' : 'm';
@@ -180,6 +188,8 @@ async function showJump(id) {
       <div><b>${fmtSpeed(a.avgV)}</b><span class="mono">Avg vertical</span></div>
     </div>
 
+    ${baroBlock(jump, a, ref, datum)}
+
     <div id="readout" class="mono">Drag across a chart to read values</div>
 
     <div class="chart"><div class="mono">Altitude ${datum} (${altUnit()}) <i class="key band"></i>window</div>
@@ -207,6 +217,33 @@ async function showJump(id) {
   $('jRound').onchange = e => update({ round: e.target.value });
   $('jWindow').onchange = e => update({ windowFt: Number(e.target.value) });
   $('jDelete').onclick = async () => { if (confirm('Delete this jump?')) { await jumpDelete(id); location.hash = 'jumps'; } };
+  if ($('jBaro')) {
+    $('jBaro').onclick = () => $('jBaroFile').click();
+    $('jBaroFile').onchange = async e => {
+      const file = e.target.files[0];
+      if (!file) return;
+      $('jBaroStatus').textContent = 'Reading…';
+      try { await addBaro(jump, [await file.text()]); showJump(id); }
+      catch (err) { $('jBaroStatus').textContent = err.message; }
+    };
+  }
+}
+
+// Barometric height at the three moments that matter, beside the GPS figure for the same instant
+function baroBlock(jump, a, ref, datum) {
+  if (!jump.baro) return `
+    <div class="mono sub">Barometric height</div>
+    <button id="jBaro">Add barometer data (SENSOR.CSV)</button>
+    <input id="jBaroFile" type="file" accept=".csv,.CSV,text/csv,text/comma-separated-values" hidden>
+    <div id="jBaroStatus" class="note">The barometer is logged in SENSOR.CSV, in the same folder as the track.</div>`;
+  const cell = (label, t) => t === null ? `<div><b>n/a</b><span class="mono">${label}</span></div>` : `
+    <div><b>${fmtAlt(baroAt(jump.baro, jump.track, t))}</b><span class="mono">${label}</span>
+    <i>GPS ${fmtAlt(valueAt(jump.track, 'h', t) - ref)}${datum === 'MSL' ? ' MSL' : ''}</i></div>`;
+  return `
+    <div class="mono sub">Barometric height // zeroed on the ground</div>
+    <div class="stats three">
+      ${cell('Aircraft exit', a.tExit)}${cell('Window entry', a.tTop)}${cell('Window exit', a.tBottom)}
+    </div>`;
 }
 
 // One cursor across all three charts, with the values under it
@@ -241,7 +278,8 @@ $('fileInput').onchange = async e => {
 };
 
 // Browse the FlySight's card: folders, plus the TRACK.CSV inside each recording
-let fsPath = '/';
+let fsPath = '/', fsSensorSize = 0;
+const SENSOR_SAMPLE_BYTES = 300 * 1024;   // roughly how much of SENSOR.CSV to pull over Bluetooth
 async function fsShow(path) {
   fsPath = path;
   $('fsPath').textContent = `[ FlySight // ${path} ]`;
@@ -249,8 +287,10 @@ async function fsShow(path) {
   $('fsList').innerHTML = '';
   try {
     const entries = (await fsListDir(path))
-      .filter(e => e.dir ? !/^(\.|SYSTEM~)/.test(e.name) : /^TRACK\.CSV$/i.test(e.name))
+      .filter(e => e.dir ? !/^(\.|SYSTEM~)/.test(e.name) : /^(TRACK|SENSOR)\.CSV$/i.test(e.name))
       .sort((x, y) => y.name.localeCompare(x.name));
+    fsSensorSize = entries.find(e => /^SENSOR\.CSV$/i.test(e.name))?.size || 0;
+    entries.splice(0, entries.length, ...entries.filter(e => !/^SENSOR\.CSV$/i.test(e.name)));
     $('fsList').innerHTML = (path === '/' ? '' : '<button data-up="1">← Up</button>') + entries.map(e =>
       `<button data-name="${esc(e.name)}" ${e.dir ? 'data-dir="1"' : `data-size="${e.size}"`}>${esc(e.name)}${e.dir ? ' →' : ` // ${Math.round(e.size / 1024)} KB // import`}</button>`).join('');
     $('fsStatus').textContent = entries.length ? '' : 'No tracks in this folder.';
@@ -284,6 +324,17 @@ $('fsList').onclick = async e => {
   try {
     const text = await fsReadFile(path, got => { $('fsStatus').textContent = `Downloading ${Math.min(99, Math.round(got / size * 100))}%`; });
     const jump = await addJump(text, fsPath.slice(1) || 'TRACK.CSV');
+    if (fsSensorSize) {
+      // SENSOR.CSV is mostly gyro data and can be many megabytes, so read evenly spaced frames of it:
+      // enough barometer rows for the jump without downloading the lot. A failure here is not fatal.
+      const every = Math.max(1, Math.ceil(fsSensorSize / SENSOR_SAMPLE_BYTES)), expect = fsSensorSize / every;
+      try {
+        const frames = await fsReadFrames(joinPath(fsPath, 'SENSOR.CSV'),
+          got => { $('fsStatus').textContent = `Reading barometer ${Math.min(99, Math.round(got / expect * 100))}%`; }, every);
+        const decoder = new TextDecoder();
+        await addBaro(jump, every === 1 ? [decoder.decode(await new Blob(frames).arrayBuffer())] : frames.map(f => decoder.decode(f)));
+      } catch (err) { importStatus('Track imported, but the barometer could not be read: ' + err.message); }
+    }
     $('fsDialog').close();
     location.hash = 'jump/' + jump.id;
   } catch (err) {

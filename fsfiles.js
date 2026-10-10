@@ -114,14 +114,19 @@ async function fsListDir(path) {
   }).catch(async e => { throw e.refused ? new Error(await fsRefusal(`list ${path}`)) : e; });
 }
 
+const FRAME_BYTES = 242;
+
 // File read: the FlySight sends numbered FILE_DATA frames and waits for each to be acknowledged,
 // resending from the last acknowledged frame on timeout. An empty frame marks the end of the file.
-async function fsReadFile(path, onProgress) {
+// every = N reads only every Nth frame, which is how a large file is sampled quickly. Returns the frames.
+async function fsReadFrames(path, onProgress, every = 1) {
   const channel = await crsOpen();
   const chunks = [];
   let next = 0, received = 0;
-  // Offset 0, stride 0 = whole file. The official app sends file paths without the leading slash.
-  const command = [CMD.READ, 0, 0, 0, 0, 0, 0, 0, 0, ...pathBytes(path.replace(/^\//, ''))];
+  // Offset 0, then the number of frames to skip between reads. The official app sends file paths
+  // without the leading slash.
+  const skip = every - 1;
+  const command = [CMD.READ, 0, 0, 0, 0, skip & 255, (skip >> 8) & 255, (skip >> 16) & 255, 0, ...pathBytes(path.replace(/^\//, ''))];
   await crsRun(channel, command, p => {
     if (p[0] !== CMD.FILE_DATA || p[1] !== (next & 0xff)) return;
     crsSend(channel, [CMD.FILE_ACK, p[1]]);
@@ -131,5 +136,6 @@ async function fsReadFile(path, onProgress) {
     received += p.length - 2;
     onProgress?.(received);
   }, 10000).catch(async e => { throw e.refused ? new Error(await fsRefusal(`read ${path}`)) : e; });
-  return new Blob(chunks).text();
+  return chunks;
 }
+const fsReadFile = async (path, onProgress) => new Blob(await fsReadFrames(path, onProgress)).text();

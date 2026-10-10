@@ -135,4 +135,74 @@ function acroVerdict(a, dzElevM, round) {
   return { level: 'ok', code: 'ok', exitAgl };
 }
 
-if (typeof module !== 'undefined') module.exports = { ACRO, FT_PER_M, parseTrack, valueAt, findTopCrossing, trimToJump, analyseAcro, jumpSeries, acroVerdict };
+/* ── Barometer (FlySight 2 SENSOR.CSV) ─────────────────────────────────── */
+
+const GPS_EPOCH = 315964800, WEEK_S = 604800;
+
+// Pressure altitude in the standard atmosphere, the same model a skydiving altimeter uses
+const pressureAltitude = pa => 44330.77 * (1 - (pa / 101325) ** 0.1902632);
+
+// Reads $BARO and $TIME rows. Pass one string for a whole file, or the separate frames of a sampled
+// download; frames start and end mid-line, so their first and last lines are thrown away.
+function parseSensor(pieces) {
+  const sensor = { baro: [], time: [] };
+  const sampled = pieces.length > 1;
+  for (const piece of pieces) {
+    const lines = piece.split(/\r?\n/);
+    for (let i = sampled ? 1 : 0; i < lines.length - (sampled ? 1 : 0); i++) {
+      const f = lines[i].split(',');
+      if (f[0] === '$BARO' && f.length === 4) {
+        const ts = parseFloat(f[1]), pa = parseFloat(f[2]);
+        if (Number.isFinite(ts) && pa > 10000 && pa < 110000) sensor.baro.push({ ts, pa });
+      } else if (f[0] === '$TIME' && f.length === 4) {
+        const ts = parseFloat(f[1]), tow = parseFloat(f[2]), week = parseInt(f[3], 10);
+        if (Number.isFinite(ts) && Number.isFinite(tow) && week > 0) sensor.time.push({ ts, tow, week });
+      }
+    }
+  }
+  return sensor;
+}
+
+const median = values => { const s = [...values].sort((a, b) => a - b); return s[s.length >> 1]; };
+
+// Barometric height for one jump, zeroed on the ground like an altimeter. Returns { t, h } with t in
+// epoch seconds to match the track, or null when the sensor file does not cover the jump.
+function baroForJump(sensor, track) {
+  if (sensor.baro.length < 20 || !sensor.time.length) return null;
+
+  // The $TIME rows tie the sensor clock to GPS week and time of week
+  const clockOffset = median(sensor.time.map(r => r.week * WEEK_S + r.tow - r.ts));
+
+  // Ground level is the highest pressure the unit logged: on the dropzone before take-off or after landing
+  const byPressure = sensor.baro.map(b => b.pa).sort((a, b) => b - a);
+  const ground = pressureAltitude(median(byPressure.slice(0, Math.max(5, Math.ceil(byPressure.length * 0.02)))));
+
+  // The time of week may be UTC or GPS time (18 leap seconds apart), so try both and keep whichever
+  // lines the barometer up with the GPS altitude
+  const first = track.t[0], last = track.t[track.t.length - 1];
+  let best = null;
+  for (const leap of [18, 0]) {
+    const t = [], h = [];
+    let sum = 0, sumSq = 0;
+    for (const b of sensor.baro) {
+      const utc = GPS_EPOCH + b.ts + clockOffset - leap;
+      if (utc < first || utc > last) continue;
+      const alt = pressureAltitude(b.pa), diff = alt - valueAt(track, 'h', utc);
+      t.push(utc); h.push(alt - ground); sum += diff; sumSq += diff * diff;
+    }
+    if (t.length < 20) continue;
+    const spread = sumSq / t.length - (sum / t.length) ** 2;
+    if (!best || spread < best.spread) best = { t, h, spread };
+  }
+  return best && { t: best.t, h: best.h };
+}
+
+// Barometric height at one instant. Barometer samples can be seconds apart (the Bluetooth import only
+// samples the file) while height changes fast, so interpolate the slow-moving gap between barometer
+// and GPS and add it to the GPS height at that instant, rather than interpolating the height itself.
+function baroAt(baro, track, t) {
+  const gap = { t: baro.t, d: baro.h.map((h, i) => h - valueAt(track, 'h', baro.t[i])) };
+  return valueAt(track, 'h', t) + valueAt(gap, 'd', t);
+}
+
+if (typeof module !== 'undefined') module.exports = { ACRO, FT_PER_M, parseTrack, valueAt, findTopCrossing, trimToJump, analyseAcro, jumpSeries, acroVerdict, pressureAltitude, parseSensor, baroForJump, baroAt };
