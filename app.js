@@ -121,10 +121,14 @@ $('connect').onclick = async () => {
   }
   try {
     setMsg('');
-    // Only list devices whose advertised name starts with "FlySight". Matching on the manufacturer ID as well
-    // let unrelated devices through, so a FlySight that has been renamed will not appear here.
+    // List FlySights by advertised name, or by FlySight's manufacturer data for units whose name differs.
+    // The firmware advertises company 0x09DB followed by one flag byte (0, or 1 in pairing mode); requiring
+    // that byte keeps out other devices that happen to use the same company ID.
     adopt(await navigator.bluetooth.requestDevice({
-      filters: [{ namePrefix: 'FlySight' }],
+      filters: [
+        { namePrefix: 'FlySight' },
+        { manufacturerData: [{ companyIdentifier: 0x09DB, dataPrefix: Uint8Array.of(0x00), mask: Uint8Array.of(0xFE) }] },
+      ],
       optionalServices: [GNSS_SERVICE, CRS_SERVICE, DS_SERVICE],
     }));
     setStatus('Connecting…');
