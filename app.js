@@ -145,7 +145,7 @@ async function connect(showAll) {
     setStatus('Not connected');
     // NotFoundError = the picker was closed without choosing, most likely because the FlySight was not in it
     if (err.name === 'NotFoundError') $('showAll').hidden = !!showAll;
-    else setMsg(err.message + ' — if this is the first connection, put the FlySight in pairing mode and accept the pairing prompt.');
+    else setMsg(err.message + ' The FlySight talks to one device at a time: disconnect any other phone or laptop first. On a device it has not used before, put it in pairing mode and accept the pairing prompt.');
   }
 }
 $('connect').onclick = () => connect(false);
