@@ -71,6 +71,7 @@
   button.primary.off { background: transparent; color: #fff; border-color: var(--border-strong); }
   #dzBtn { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   #msg { min-height: 18px; margin: 10px 0 6px; font-size: 13px; line-height: 1.4; color: var(--warning); text-align: center; }
+  #showAll { margin-bottom: 8px; color: var(--warning); border-color: var(--warning); }
   #raw { font-size: 9px; letter-spacing: .04em; color: var(--ink-400); text-align: center; word-break: break-all; min-height: 12px; margin-bottom: 8px; text-transform: none; }
 
   /* Jumps list */
@@ -167,7 +168,8 @@
     </div>
   </main>
   <div id="msg"></div>
-  <div id="raw" class="mono">LE LIVE v11</div>
+  <button id="showAll" hidden>FlySight not listed? Show all devices</button>
+  <div id="raw" class="mono">LE LIVE v12</div>
   <footer>
     <button id="connect" class="primary">Connect FlySight →</button>
     <button id="units">ft / m</button>

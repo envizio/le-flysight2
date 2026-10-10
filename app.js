@@ -106,7 +106,8 @@ async function resume() {
   reconnect();
 }
 
-$('connect').onclick = async () => {
+// Normally only FlySights are listed. showAll lists every nearby device, as a way out if the filter misses the unit.
+async function connect(showAll) {
   if (wantConnected) {
     wantConnected = false;
     state.auto = false; save();
@@ -121,15 +122,17 @@ $('connect').onclick = async () => {
   }
   try {
     setMsg('');
+    $('showAll').hidden = true;
+    const services = [GNSS_SERVICE, CRS_SERVICE, DS_SERVICE];
     // List FlySights by advertised name, or by FlySight's manufacturer data for units whose name differs.
     // The firmware advertises company 0x09DB followed by one flag byte (0, or 1 in pairing mode); requiring
     // that byte keeps out other devices that happen to use the same company ID.
-    adopt(await navigator.bluetooth.requestDevice({
+    adopt(await navigator.bluetooth.requestDevice(showAll ? { acceptAllDevices: true, optionalServices: services } : {
       filters: [
         { namePrefix: 'FlySight' },
         { manufacturerData: [{ companyIdentifier: 0x09DB, dataPrefix: Uint8Array.of(0x00), mask: Uint8Array.of(0xFE) }] },
       ],
-      optionalServices: [GNSS_SERVICE, CRS_SERVICE, DS_SERVICE],
+      optionalServices: services,
     }));
     setStatus('Connecting…');
     await subscribe();
@@ -140,9 +143,13 @@ $('connect').onclick = async () => {
   } catch (err) {
     wantConnected = false;
     setStatus('Not connected');
-    if (err.name !== 'NotFoundError') setMsg(err.message + ' — if this is the first connection, put the FlySight in pairing mode and accept the pairing prompt.');
+    // NotFoundError = the picker was closed without choosing, most likely because the FlySight was not in it
+    if (err.name === 'NotFoundError') $('showAll').hidden = !!showAll;
+    else setMsg(err.message + ' — if this is the first connection, put the FlySight in pairing mode and accept the pairing prompt.');
   }
-};
+}
+$('connect').onclick = () => connect(false);
+$('showAll').onclick = () => connect(true);
 
 /* ── Units and dropzones ───────────────────────────────────────────────── */
 
