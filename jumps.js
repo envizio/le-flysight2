@@ -279,6 +279,16 @@ $('fileInput').onchange = async e => {
 
 // Browse the FlySight's card: folders, plus the TRACK.CSV inside each recording
 let fsPath = '/', fsSensorSize = 0;
+let fsTzOffset = 0;   // seconds; the FlySight names recording folders in UTC plus its TZ_Offset setting
+
+// A recording folder is /YY-MM-DD/HH-MM-SS in the FlySight's own time zone. Returns that moment in this
+// phone's time zone, or null when the path is not a recording folder.
+function recordingLocalTime(datePath, name) {
+  const d = /^\/(\d\d)-(\d\d)-(\d\d)$/.exec(datePath), t = /^(\d\d)-(\d\d)-(\d\d)$/.exec(name);
+  if (!d || !t) return null;
+  const when = new Date(Date.UTC(2000 + +d[1], d[2] - 1, +d[3], +t[1], +t[2], +t[3]) - fsTzOffset * 1000);
+  return when.toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+}
 const SENSOR_SAMPLE_BYTES = 300 * 1024;   // roughly how much of SENSOR.CSV to pull over Bluetooth
 async function fsShow(path) {
   fsPath = path;
@@ -293,12 +303,15 @@ async function fsShow(path) {
     fsSensorSize = entries.find(e => /^SENSOR\.CSV$/i.test(e.name))?.size || 0;
     entries.splice(0, entries.length, ...entries.filter(e => !/^SENSOR\.CSV$/i.test(e.name)));
     $('fsList').innerHTML = (path === '/' ? '' : '<button data-up="1">← Up</button>') + entries.map(e =>
-      `<button data-name="${esc(e.name)}" ${e.dir ? 'data-dir="1"' : `data-size="${e.size}"`}>${esc(e.name)}${
-        e.dir ? (/^TEMP$/i.test(e.name) && path === '/' ? ' // unfinished recordings →' : `${e.stamp ? ' // ' + e.stamp.text : ''} →`)
-              : ` // ${Math.round(e.size / 1024)} KB // import`}</button>`).join('');
+      `<button data-name="${esc(e.name)}" ${e.dir ? 'data-dir="1"' : `data-size="${e.size}"`}>${
+        !e.dir ? `${esc(e.name)} // ${Math.round(e.size / 1024)} KB // import`
+        : /^TEMP$/i.test(e.name) && path === '/' ? `${esc(e.name)} // unfinished recordings →`
+        : recordingLocalTime(path, e.name) ? `${recordingLocalTime(path, e.name)} // ${esc(e.name)} →`
+        : `${esc(e.name)}${e.stamp ? ' // ' + e.stamp.text : ''} →`}</button>`).join('');
     const folders = entries.filter(e => e.dir).length;
     $('fsStatus').textContent = !entries.length ? 'No tracks in this folder.'
-      : path === '/' ? `${folders} folders, newest date first. A recording that was not closed cleanly stays in TEMP.` : '';
+      : path === '/' ? `${folders} folders, newest date first. A recording that was not closed cleanly stays in TEMP.`
+      : entries.some(e => recordingLocalTime(path, e.name)) ? "Times are in this phone's time zone; the folder name follows." : '';
   } catch (err) { $('fsStatus').textContent = err.message; }
 }
 
@@ -315,6 +328,8 @@ $('importFlysight').onclick = async () => {
       await fsRequestSleep().catch(() => {});
     }
   } catch (err) { $('fsStatus').textContent = err.message; return; }
+  // Read-only: the FlySight's own time zone setting, needed to convert its folder names. UTC if unreadable.
+  try { fsTzOffset = Number(/^TZ_Offset:\s*(-?\d+)/m.exec(await fsReadFile('/CONFIG.TXT'))?.[1]) || 0; } catch { fsTzOffset = 0; }
   fsShow('/');
 };
 $('fsClose').onclick = () => $('fsDialog').close();
